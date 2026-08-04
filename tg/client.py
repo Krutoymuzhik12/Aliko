@@ -15,14 +15,32 @@ from config.settings import AppSettings
 logger = logging.getLogger(__name__)
 
 
+def _build_proxy(settings: AppSettings) -> tuple | None:
+    if not settings.tg_proxy_host:
+        return None
+    import socks  # PySocks — нужен только если реально настроен прокси
+
+    return (
+        socks.SOCKS5,
+        settings.tg_proxy_host,
+        settings.tg_proxy_port,
+        True,  # rdns
+        settings.tg_proxy_username,
+        settings.tg_proxy_password,
+    )
+
+
 class ManagerClient:
     def __init__(self, settings: AppSettings):
         if not settings.tg_ready():
             raise RuntimeError("Задай TG_API_ID и TG_API_HASH в .env (my.telegram.org)")
         self.settings = settings
+        proxy = _build_proxy(settings)
         self.client = TelegramClient(
-            settings.tg_session, settings.tg_api_id, settings.tg_api_hash
+            settings.tg_session, settings.tg_api_id, settings.tg_api_hash, proxy=proxy
         )
+        if proxy:
+            logger.info("Telethon: через SOCKS5-прокси %s", settings.tg_proxy_host)
         self.me_id: int = 0
 
     async def start(self) -> None:

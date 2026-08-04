@@ -23,6 +23,11 @@ class AppSettings:
     tg_session: str
     manager_chat: str
 
+    tg_proxy_host: str
+    tg_proxy_port: int
+    tg_proxy_username: str
+    tg_proxy_password: str
+
     poe_api_key: str
     poe_classifier_model: str  # вынесенный бот на Poe — классификация (данные, без логики в коде)
     poe_chat_model: str  # вынесенный бот на Poe — генерация ответа
@@ -54,6 +59,10 @@ class AppSettings:
             tg_phone=os.getenv("TG_PHONE", "").strip(),
             tg_session=os.getenv("TG_SESSION", str(DATA_DIR / "karina")).strip(),
             manager_chat=os.getenv("MANAGER_CHAT", "me").strip(),
+            tg_proxy_host=os.getenv("TG_PROXY_HOST", "").strip(),
+            tg_proxy_port=int(os.getenv("TG_PROXY_PORT", "0") or 0),
+            tg_proxy_username=os.getenv("TG_PROXY_USERNAME", "").strip(),
+            tg_proxy_password=os.getenv("TG_PROXY_PASSWORD", "").strip(),
             poe_api_key=os.getenv("POE_API_KEY", "").strip(),
             poe_classifier_model=os.getenv("POE_CLASSIFIER_MODEL", "").strip(),
             poe_chat_model=os.getenv("POE_CHAT_MODEL", "Claude-Sonnet-4.5").strip(),
