@@ -53,6 +53,9 @@ class AppSettings:
     followup_1_delay_sec: float  # молчание клиента -> первый дожим
     followup_2_delay_sec: float  # молчание клиента -> второй (последний) дожим
     followup_poll_sec: float  # как часто проверять кандидатов на дожим
+    quiet_hour_start: int  # дожим только с этого часа (локальное время tz ниже)
+    quiet_hour_end: int  # ...и до этого часа
+    timezone_offset_hours: int  # смещение от UTC для тихих часов (МСК = 3)
 
     db_path: Path
 
@@ -91,6 +94,9 @@ class AppSettings:
             followup_1_delay_sec=float(os.getenv("FOLLOWUP_1_DELAY_SEC", "7200")),
             followup_2_delay_sec=float(os.getenv("FOLLOWUP_2_DELAY_SEC", "86400")),
             followup_poll_sec=float(os.getenv("FOLLOWUP_POLL_SEC", "300")),
+            quiet_hour_start=int(os.getenv("QUIET_HOUR_START", "9")),
+            quiet_hour_end=int(os.getenv("QUIET_HOUR_END", "21")),
+            timezone_offset_hours=int(os.getenv("TIMEZONE_OFFSET_HOURS", "3")),
             db_path=DATA_DIR / "karina.db",
         )
 

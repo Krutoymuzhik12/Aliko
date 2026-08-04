@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from telethon import events
 from telethon.tl.types import User
@@ -238,8 +238,17 @@ class ReactiveWorker:
             except Exception:
                 logger.exception("Ошибка в цикле дожима")
 
+    def _within_quiet_hours(self, now_utc: datetime) -> bool:
+        """Дожим шлём только в рабочее окно по местному времени. На живые
+        сообщения клиента бот отвечает круглосуточно — тишина только для
+        сообщений, которые бот инициирует сам."""
+        local_hour = (now_utc + timedelta(hours=self.settings.timezone_offset_hours)).hour
+        return self.settings.quiet_hour_start <= local_hour < self.settings.quiet_hour_end
+
     async def _check_followups(self) -> None:
         now = datetime.now(timezone.utc)
+        if not self._within_quiet_hours(now):
+            return  # ночь — дожим откладывается до утра
         for row in self.db.candidates_for_followup():
             stage = row["followup_stage"]
             if stage == 0:
