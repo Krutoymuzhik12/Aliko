@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timezone
 
 from telethon import events
@@ -20,6 +21,31 @@ logger = logging.getLogger(__name__)
 # Синтетическая классификация для дожима — код подставляет её сам, минуя
 # классификатор (клиент ничего не писал, классифицировать нечего).
 _FOLLOWUP_INTENTS = {1: "followup_2h", 2: "followup_24h"}
+
+
+_CEILING_RE = re.compile(
+    r"потолк|потолок|натяжн|глянц|матов|сатин|тканев|бесщел|теневой|"
+    r"замер|монтаж|полотн|светильник|парящ",
+    re.IGNORECASE,
+)
+_AFFIRM_RE = re.compile(r"^\s*(да|ага|верно|конечно|именно|точно|ок|окей)\b", re.IGNORECASE)
+_NEGATION_RE = re.compile(r"\bне\b|\bнет\b", re.IGNORECASE)
+
+
+def _contradicts_off_topic(text: str) -> bool:
+    """Предохранитель перед НЕОБРАТИМЫМ отключением чата.
+
+    Классификатор иногда ошибочно отдаёт off_topic_confirmed на согласие
+    клиента («да, по потолкам»), а цена такой ошибки — молча потерянный
+    живой клиент. Поэтому если в сообщении есть признак целевого («потолки»,
+    «замер», «да») и при этом нет отрицания — отключение не выполняем.
+    Отрицание («да не, я не по потолкам») снимает защиту: там классификатор
+    прав.
+    """
+    t = (text or "").lower()
+    if _NEGATION_RE.search(t):
+        return False
+    return bool(_CEILING_RE.search(t) or _AFFIRM_RE.match(t))
 
 
 def _extract_intent(classifier_output: str | None) -> str | None:
@@ -123,10 +149,18 @@ class ReactiveWorker:
                 logger.exception("Poe classifier failed user=%s", user_id)
 
         if _extract_intent(classifier_output) == "off_topic_confirmed":
-            # Не по теме — молча уходим, диалоговый бот вообще не вызывается,
-            # клиенту ничего не пишем, только отчёт в группу.
-            await self._shutdown_off_topic(user_id)
-            return
+            if _contradicts_off_topic(combined_text):
+                logger.warning(
+                    "off_topic_confirmed для user=%s, но сообщение похоже на целевое "
+                    "(%s) — отключение отменено, продолжаем диалог",
+                    user_id,
+                    combined_text[:80],
+                )
+            else:
+                # Не по теме — молча уходим, диалоговый бот вообще не вызывается,
+                # клиенту ничего не пишем, только отчёт в группу.
+                await self._shutdown_off_topic(user_id)
+                return
 
         dialog_messages = list(messages)
         if classifier_output:
