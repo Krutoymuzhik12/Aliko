@@ -17,6 +17,8 @@ from tg.worker import ReactiveWorker
 LOG_FILE = DATA_DIR / "bot.log"
 logger = logging.getLogger(__name__)
 
+_background_tasks: set[asyncio.Task] = set()
+
 
 async def run() -> None:
     if not SETTINGS.poe_ready():
@@ -30,7 +32,11 @@ async def run() -> None:
 
     worker = ReactiveWorker(SETTINGS, tg, db, poe)
     worker.register()
-    asyncio.create_task(worker.run_followup_loop())
+    # Ссылку держим явно: event loop хранит только слабые ссылки на задачи,
+    # без этого фоновый дожим может быть собран сборщиком мусора.
+    followup_task = asyncio.create_task(worker.run_followup_loop())
+    _background_tasks.add(followup_task)
+    followup_task.add_done_callback(_background_tasks.discard)
     logger.info(
         "Реактивный контур запущен. POE_CHAT_MODEL=%s, дожим через %ss/%ss",
         SETTINGS.poe_chat_model,

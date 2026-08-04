@@ -85,6 +85,20 @@ class Database:
                 "UPDATE chats SET status = 'existing' WHERE user_id = ?", (user_id,)
             )
 
+    def mark_existing(self, user_id: int, username: str | None) -> None:
+        """Пометить чат существующим независимо от того, есть ли уже запись.
+        Нужен для знакомых из контактов: set_chat_status при конфликте
+        обновляет только username и статус 'new' бы не перебил, а
+        force_existing ничего не сделает, если строки ещё нет."""
+        with self._conn() as conn:
+            conn.execute(
+                """INSERT INTO chats (user_id, username, status, created_at)
+                   VALUES (?, ?, 'existing', ?)
+                   ON CONFLICT(user_id) DO UPDATE SET status = 'existing',
+                                                      username = excluded.username""",
+                (user_id, username, _utc_now()),
+            )
+
     def force_new(self, user_id: int) -> None:
         """SELF_TEST: гарантированно 'new', даже если раньше стало 'existing'
         (например, тестировали сценарий ручного вмешательства на себе же)."""

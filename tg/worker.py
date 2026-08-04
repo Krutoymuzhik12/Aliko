@@ -309,7 +309,7 @@ class ReactiveWorker:
                 # Человек записан в контакты аккаунта — это знакомый, а не
                 # холодный лид, даже если переписки в Telegram ещё не было.
                 # Помечаем 'existing' навсегда и молчим.
-                self.db.set_chat_status(user_id, sender.username, "existing")
+                self.db.mark_existing(user_id, sender.username)
                 logger.info("user=%s есть в контактах аккаунта — бот не вмешивается", user_id)
                 return
 
