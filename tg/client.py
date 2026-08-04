@@ -15,19 +15,41 @@ from config.settings import AppSettings
 logger = logging.getLogger(__name__)
 
 
-def _build_proxy(settings: AppSettings) -> tuple | None:
-    if not settings.tg_proxy_host:
-        return None
-    import socks  # PySocks — нужен только если реально настроен прокси
+def _normalize_mtproxy_secret(secret: str) -> str:
+    """Секрет из tg://proxy?...&secret=... часто в URL-safe base64 (с - и _).
+    Telethon декодирует обычный base64 и на "-"/"_" молча даёт НЕВЕРНЫЕ байты
+    вместо ошибки (base64.b64decode игнорирует левые символы) — поэтому
+    сначала пробуем как чистый hex, иначе приводим к обычному base64."""
+    try:
+        bytes.fromhex(secret[2:] if secret[:2] in ("ee", "dd") else secret)
+        return secret
+    except ValueError:
+        return secret.replace("-", "+").replace("_", "/")
 
-    return (
-        socks.SOCKS5,
-        settings.tg_proxy_host,
-        settings.tg_proxy_port,
-        True,  # rdns
-        settings.tg_proxy_username,
-        settings.tg_proxy_password,
-    )
+
+def _build_client_kwargs(settings: AppSettings) -> dict:
+    if settings.tg_mtproxy_server:
+        from telethon.network import ConnectionTcpMTProxyRandomizedIntermediate
+
+        secret = _normalize_mtproxy_secret(settings.tg_mtproxy_secret)
+        return {
+            "connection": ConnectionTcpMTProxyRandomizedIntermediate,
+            "proxy": (settings.tg_mtproxy_server, settings.tg_mtproxy_port, secret),
+        }
+    if settings.tg_proxy_host:
+        import socks  # PySocks
+
+        return {
+            "proxy": (
+                socks.SOCKS5,
+                settings.tg_proxy_host,
+                settings.tg_proxy_port,
+                True,  # rdns
+                settings.tg_proxy_username,
+                settings.tg_proxy_password,
+            )
+        }
+    return {}
 
 
 class ManagerClient:
@@ -35,11 +57,13 @@ class ManagerClient:
         if not settings.tg_ready():
             raise RuntimeError("Задай TG_API_ID и TG_API_HASH в .env (my.telegram.org)")
         self.settings = settings
-        proxy = _build_proxy(settings)
+        client_kwargs = _build_client_kwargs(settings)
         self.client = TelegramClient(
-            settings.tg_session, settings.tg_api_id, settings.tg_api_hash, proxy=proxy
+            settings.tg_session, settings.tg_api_id, settings.tg_api_hash, **client_kwargs
         )
-        if proxy:
+        if settings.tg_mtproxy_server:
+            logger.info("Telethon: через MTProxy %s:%s", settings.tg_mtproxy_server, settings.tg_mtproxy_port)
+        elif settings.tg_proxy_host:
             logger.info("Telethon: через SOCKS5-прокси %s", settings.tg_proxy_host)
         self.me_id: int = 0
 

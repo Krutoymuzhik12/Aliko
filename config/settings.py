@@ -28,6 +28,10 @@ class AppSettings:
     tg_proxy_username: str
     tg_proxy_password: str
 
+    tg_mtproxy_server: str  # если задан — используется ВМЕСТО SOCKS5 выше
+    tg_mtproxy_port: int
+    tg_mtproxy_secret: str
+
     poe_api_key: str
     poe_classifier_model: str  # вынесенный бот на Poe — классификация (данные, без логики в коде)
     poe_chat_model: str  # вынесенный бот на Poe — генерация ответа
@@ -63,6 +67,9 @@ class AppSettings:
             tg_proxy_port=int(os.getenv("TG_PROXY_PORT", "0") or 0),
             tg_proxy_username=os.getenv("TG_PROXY_USERNAME", "").strip(),
             tg_proxy_password=os.getenv("TG_PROXY_PASSWORD", "").strip(),
+            tg_mtproxy_server=os.getenv("TG_MTPROXY_SERVER", "").strip(),
+            tg_mtproxy_port=int(os.getenv("TG_MTPROXY_PORT", "0") or 0),
+            tg_mtproxy_secret=os.getenv("TG_MTPROXY_SECRET", "").strip(),
             poe_api_key=os.getenv("POE_API_KEY", "").strip(),
             poe_classifier_model=os.getenv("POE_CLASSIFIER_MODEL", "").strip(),
             poe_chat_model=os.getenv("POE_CHAT_MODEL", "Claude-Sonnet-4.5").strip(),
