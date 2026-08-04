@@ -122,6 +122,12 @@ class ReactiveWorker:
             except Exception:
                 logger.exception("Poe classifier failed user=%s", user_id)
 
+        if _extract_intent(classifier_output) == "off_topic_confirmed":
+            # Не по теме — молча уходим, диалоговый бот вообще не вызывается,
+            # клиенту ничего не пишем, только отчёт в группу.
+            await self._shutdown_off_topic(user_id)
+            return
+
         dialog_messages = list(messages)
         if classifier_output:
             dialog_messages.append(
@@ -143,10 +149,6 @@ class ReactiveWorker:
             self._bot_sent_ids = set(list(self._bot_sent_ids)[-1000:])
 
         self.db.append_message(user_id, "bot", reply)
-
-        if _extract_intent(classifier_output) == "off_topic_confirmed":
-            await self._shutdown_off_topic(user_id)
-            return
 
         phone = extract_phone(combined_text)
         if phone and not self.db.is_lead_notified(user_id):
