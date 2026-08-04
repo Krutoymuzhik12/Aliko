@@ -78,7 +78,12 @@ class ReactiveWorker:
         self.db = db
         self.poe = poe
         self._user_locks: dict[int, asyncio.Lock] = {}
-        self._bot_sent_ids: set[int] = set()
+        # dict как упорядоченное множество: вытеснять надо СТАРЫЕ id, а не
+        # произвольные. set() для этого не годится — у него нет порядка, и
+        # list(set)[-1000:] выбрасывал в том числе только что добавленный id,
+        # из-за чего on_outgoing принимал собственное сообщение бота за ручное
+        # и навсегда отключал бота в живом клиентском чате.
+        self._bot_sent_ids: dict[int, None] = {}
         self._catalog_json = load_catalog_json()  # knowledge/catalog.json, читается один раз
 
         self._batcher = MessageBatcher(
@@ -95,6 +100,13 @@ class ReactiveWorker:
         if user_id not in self._user_locks:
             self._user_locks[user_id] = asyncio.Lock()
         return self._user_locks[user_id]
+
+    def _remember_bot_message(self, msg_id: int) -> None:
+        """Запоминаем id отправленного ботом сообщения, чтобы on_outgoing не
+        принял его за ручное сообщение владельца. Вытесняем самые старые."""
+        self._bot_sent_ids[msg_id] = None
+        while len(self._bot_sent_ids) > 2000:
+            self._bot_sent_ids.pop(next(iter(self._bot_sent_ids)))
 
     def _is_bot_owned(self, user_id: int) -> bool:
         row = self.db.get_chat(user_id)
@@ -178,9 +190,7 @@ class ReactiveWorker:
             return  # владелец написал сам, пока ждали ответ от Poe
 
         msg_id = await self.tg.send(user_id, reply)
-        self._bot_sent_ids.add(msg_id)
-        if len(self._bot_sent_ids) > 2000:
-            self._bot_sent_ids = set(list(self._bot_sent_ids)[-1000:])
+        self._remember_bot_message(msg_id)
 
         self.db.append_message(user_id, "bot", reply)
 
@@ -273,7 +283,7 @@ class ReactiveWorker:
                 return
 
             msg_id = await self.tg.send(user_id, reply)
-            self._bot_sent_ids.add(msg_id)
+            self._remember_bot_message(msg_id)
             self.db.append_message(user_id, "bot", reply)
             self.db.record_followup_sent(user_id, stage)
             logger.info("Дожим stage=%s отправлен user=%s", stage, user_id)
@@ -295,6 +305,14 @@ class ReactiveWorker:
                 return
 
             user_id = sender.id
+            if sender.contact or sender.mutual_contact:
+                # Человек записан в контакты аккаунта — это знакомый, а не
+                # холодный лид, даже если переписки в Telegram ещё не было.
+                # Помечаем 'existing' навсегда и молчим.
+                self.db.set_chat_status(user_id, sender.username, "existing")
+                logger.info("user=%s есть в контактах аккаунта — бот не вмешивается", user_id)
+                return
+
             async with self._user_lock(user_id):
                 # Лок нужен, чтобы 2 быстрых сообщения от подлинно нового
                 # контакта не race'ились: без него второй вызов classify()
