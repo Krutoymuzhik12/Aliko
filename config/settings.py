@@ -23,6 +23,7 @@ class AppSettings:
     tg_session: str
     manager_chat: str
 
+    tg_proxy_type: str  # socks5 | http
     tg_proxy_host: str
     tg_proxy_port: int
     tg_proxy_username: str
@@ -63,6 +64,7 @@ class AppSettings:
             tg_phone=os.getenv("TG_PHONE", "").strip(),
             tg_session=os.getenv("TG_SESSION", str(DATA_DIR / "karina")).strip(),
             manager_chat=os.getenv("MANAGER_CHAT", "me").strip(),
+            tg_proxy_type=os.getenv("TG_PROXY_TYPE", "socks5").strip().lower(),
             tg_proxy_host=os.getenv("TG_PROXY_HOST", "").strip(),
             tg_proxy_port=int(os.getenv("TG_PROXY_PORT", "0") or 0),
             tg_proxy_username=os.getenv("TG_PROXY_USERNAME", "").strip(),

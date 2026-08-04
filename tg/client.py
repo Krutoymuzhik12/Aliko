@@ -39,9 +39,10 @@ def _build_client_kwargs(settings: AppSettings) -> dict:
     if settings.tg_proxy_host:
         import socks  # PySocks
 
+        proxy_type = socks.HTTP if settings.tg_proxy_type == "http" else socks.SOCKS5
         return {
             "proxy": (
-                socks.SOCKS5,
+                proxy_type,
                 settings.tg_proxy_host,
                 settings.tg_proxy_port,
                 True,  # rdns
@@ -64,7 +65,11 @@ class ManagerClient:
         if settings.tg_mtproxy_server:
             logger.info("Telethon: через MTProxy %s:%s", settings.tg_mtproxy_server, settings.tg_mtproxy_port)
         elif settings.tg_proxy_host:
-            logger.info("Telethon: через SOCKS5-прокси %s", settings.tg_proxy_host)
+            logger.info(
+                "Telethon: через %s-прокси %s",
+                settings.tg_proxy_type.upper(),
+                settings.tg_proxy_host,
+            )
         self.me_id: int = 0
 
     async def start(self) -> None:
