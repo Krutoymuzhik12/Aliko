@@ -15,8 +15,13 @@ class Database:
     messages: полная история диалога, целиком уходит в Poe как контекст на
     каждый ответ."""
 
-    def __init__(self, path=None):
+    def __init__(self, path=None, account_id: int = 0):
         self.path = path or SETTINGS.db_path
+        # id Telegram-аккаунта, под которым работает бот. Пишется в каждую
+        # запись чата: user_id в Telegram глобальны, но решение «новый ли это
+        # чат» принимается с точки зрения КОНКРЕТНОГО аккаунта. После смены
+        # аккаунта старые записи недействительны.
+        self.account_id = account_id
         self._init_schema()
 
     @contextmanager
@@ -41,6 +46,7 @@ class Database:
                     followup_stage INTEGER NOT NULL DEFAULT 0,
                     followup_last_sent_at TEXT,
                     is_self_test INTEGER NOT NULL DEFAULT 0,
+                    account_id INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 );
 
@@ -67,6 +73,10 @@ class Database:
                 conn.execute(
                     "ALTER TABLE chats ADD COLUMN is_self_test INTEGER NOT NULL DEFAULT 0"
                 )
+            if "account_id" not in cols:
+                conn.execute(
+                    "ALTER TABLE chats ADD COLUMN account_id INTEGER NOT NULL DEFAULT 0"
+                )
 
     def get_chat(self, user_id: int) -> sqlite3.Row | None:
         with self._conn() as conn:
@@ -77,10 +87,10 @@ class Database:
     def set_chat_status(self, user_id: int, username: str | None, status: str) -> None:
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO chats (user_id, username, status, created_at)
-                   VALUES (?, ?, ?, ?)
+                """INSERT INTO chats (user_id, username, status, account_id, created_at)
+                   VALUES (?, ?, ?, ?, ?)
                    ON CONFLICT(user_id) DO UPDATE SET username = excluded.username""",
-                (user_id, username, status, _utc_now()),
+                (user_id, username, status, self.account_id, _utc_now()),
             )
 
     def force_existing(self, user_id: int) -> None:
@@ -97,11 +107,11 @@ class Database:
         force_existing ничего не сделает, если строки ещё нет."""
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO chats (user_id, username, status, created_at)
-                   VALUES (?, ?, 'existing', ?)
+                """INSERT INTO chats (user_id, username, status, account_id, created_at)
+                   VALUES (?, ?, 'existing', ?, ?)
                    ON CONFLICT(user_id) DO UPDATE SET status = 'existing',
                                                       username = excluded.username""",
-                (user_id, username, _utc_now()),
+                (user_id, username, self.account_id, _utc_now()),
             )
 
     def force_new(self, user_id: int) -> None:
@@ -114,10 +124,11 @@ class Database:
         реальному человеку с чужого уже аккаунта."""
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO chats (user_id, username, status, is_self_test, created_at)
-                   VALUES (?, NULL, 'new', 1, ?)
-                   ON CONFLICT(user_id) DO UPDATE SET status = 'new', is_self_test = 1""",
-                (user_id, _utc_now()),
+                """INSERT INTO chats (user_id, username, status, is_self_test, account_id, created_at)
+                   VALUES (?, NULL, 'new', 1, ?, ?)
+                   ON CONFLICT(user_id) DO UPDATE SET status = 'new', is_self_test = 1,
+                                                      account_id = excluded.account_id""",
+                (user_id, self.account_id, _utc_now()),
             )
 
     def is_lead_notified(self, user_id: int) -> bool:
@@ -163,13 +174,29 @@ class Database:
                            WHERE user_id = chats.user_id AND role = 'user') AS last_user_msg_at
                    FROM chats
                    WHERE status = 'new' AND lead_notified_at IS NULL AND followup_stage < 2
-                     AND is_self_test = ?
+                     AND is_self_test = ? AND account_id = ?
                      AND EXISTS (SELECT 1 FROM messages
                                  WHERE user_id = chats.user_id AND role = 'user')
                      AND EXISTS (SELECT 1 FROM messages
                                  WHERE user_id = chats.user_id AND role = 'bot')""",
-                (1 if self_test else 0,),
+                (1 if self_test else 0, self.account_id),
             ).fetchall()
+
+    def startup_summary(self, account_id: int) -> dict:
+        """Сводка для лога при запуске: видно сразу, если в базе остались
+        тестовые чаты или чаты от прежнего аккаунта."""
+        with self._conn() as conn:
+            row = conn.execute(
+                """SELECT COUNT(*) AS total,
+                          SUM(CASE WHEN status='new' AND is_self_test=0
+                                        AND account_id=? THEN 1 ELSE 0 END) AS active_here,
+                          SUM(CASE WHEN is_self_test=1 THEN 1 ELSE 0 END) AS self_test,
+                          SUM(CASE WHEN account_id NOT IN (0, ?) THEN 1 ELSE 0 END)
+                              AS foreign_account
+                   FROM chats""",
+                (account_id, account_id),
+            ).fetchone()
+            return {k: (row[k] or 0) for k in row.keys()}
 
     def append_message(self, user_id: int, role: str, text: str) -> None:
         with self._conn() as conn:

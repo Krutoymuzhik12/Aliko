@@ -117,6 +117,16 @@ class ReactiveWorker:
         # если аккаунт с тех пор сменили.
         if bool(row["is_self_test"]) != self.settings.self_test:
             return False
+        # Запись создана под другим Telegram-аккаунтом — она про другие
+        # отношения с этим человеком, действовать по ней нельзя.
+        if self.tg.me_id and row["account_id"] and row["account_id"] != self.tg.me_id:
+            logger.warning(
+                "chat user=%s создан аккаунтом %s, сейчас работаем под %s — пропускаем",
+                user_id,
+                row["account_id"],
+                self.tg.me_id,
+            )
+            return False
         return True
 
     def _build_messages(self, user_id: int) -> list[dict]:

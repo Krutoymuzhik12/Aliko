@@ -27,8 +27,24 @@ async def run() -> None:
     tg = ManagerClient(SETTINGS)
     await tg.start()
 
-    db = Database()
+    db = Database(account_id=tg.me_id)
     poe = PoeClient()
+
+    stats = db.startup_summary(tg.me_id)
+    logger.info(
+        "Режим: %s. Чатов в базе: %s (активных под этим аккаунтом: %s, "
+        "тестовых: %s, от другого аккаунта: %s)",
+        "ТЕСТ (только Избранное)" if SETTINGS.self_test else "БОЕВОЙ",
+        stats["total"],
+        stats["active_here"],
+        stats["self_test"],
+        stats["foreign_account"],
+    )
+    if stats["foreign_account"]:
+        logger.warning(
+            "В базе есть чаты от другого аккаунта — они будут игнорироваться. "
+            "Если аккаунт менялся, лучше очистить базу."
+        )
 
     worker = ReactiveWorker(SETTINGS, tg, db, poe)
     worker.register()

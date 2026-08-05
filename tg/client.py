@@ -84,6 +84,12 @@ class ManagerClient:
         """В SELF_TEST всё уходит в Избранное с текстовой меткой — реальный
         собеседник ничего не получает, метка отличает ответы бота от
         «клиентских» сообщений в той же переписке с самим собой."""
+        if not self.settings.self_test and user_id == self.me_id:
+            # Собственное Избранное — не клиент. Такое бывает только от
+            # тестовых остатков в базе, наружу это уходить не должно.
+            raise RuntimeError(
+                f"Попытка отправить в собственное Избранное (id={user_id}) в боевом режиме"
+            )
         target = "me" if self.settings.self_test else user_id
         out_text = f"{self.SELF_TEST_MARKER}{text}" if self.settings.self_test else text
         try:
