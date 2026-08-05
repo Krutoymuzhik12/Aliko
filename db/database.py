@@ -58,6 +58,11 @@ class Database:
                     created_at TEXT NOT NULL
                 );
                 CREATE INDEX IF NOT EXISTS idx_messages_user ON messages(user_id, id);
+
+                CREATE TABLE IF NOT EXISTS meta (
+                    key TEXT PRIMARY KEY,
+                    value TEXT NOT NULL
+                );
                 """
             )
             cols = {row["name"] for row in conn.execute("PRAGMA table_info(chats)")}
@@ -181,6 +186,34 @@ class Database:
                                  WHERE user_id = chats.user_id AND role = 'bot')""",
                 (1 if self_test else 0, self.account_id),
             ).fetchall()
+
+    def is_bootstrapped(self, account_id: int) -> bool:
+        """Снимок диалогов уже делался для ЭТОГО аккаунта?"""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT value FROM meta WHERE key = ?", (f"dialogs_snapshot_{account_id}",)
+            ).fetchone()
+            return row is not None
+
+    def mark_bootstrapped(self, account_id: int, count: int) -> None:
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)",
+                (f"dialogs_snapshot_{account_id}", f"{count} @ {_utc_now()}"),
+            )
+
+    def snapshot_existing_dialog(self, user_id: int, username: str | None) -> bool:
+        """Пометить чат существующим, но НЕ трогать уже известные записи —
+        снимок не должен перебивать статусы, накопленные ботом. Возвращает
+        True, если запись была создана."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                """INSERT INTO chats (user_id, username, status, account_id, created_at)
+                   VALUES (?, ?, 'existing', ?, ?)
+                   ON CONFLICT(user_id) DO NOTHING""",
+                (user_id, username, self.account_id, _utc_now()),
+            )
+            return cur.rowcount > 0
 
     def startup_summary(self, account_id: int) -> dict:
         """Сводка для лога при запуске: видно сразу, если в базе остались

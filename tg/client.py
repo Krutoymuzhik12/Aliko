@@ -96,6 +96,29 @@ class ManagerClient:
         self.me_id = me.id
         logger.info("Telethon: вошли как %s (@%s id=%s)", me.first_name, me.username, me.id)
 
+    async def snapshot_existing_dialogs(self, db) -> None:
+        """Разовый снимок списка диалогов аккаунта: всё, что уже есть в чат-
+        листе на момент установки, помечается existing навсегда.
+
+        Зачем, если есть проверка истории: Telegram хранит список диалогов
+        отдельно от сообщений, поэтому чат остаётся в списке даже когда
+        переписка в нём стёрта автоудалением. Снимок фиксирует эти чаты, пока
+        они ещё видны, и дальше отметка живёт в базе. Делается один раз на
+        аккаунт — повторный прогон затирал бы работу бота, помечая его
+        собственных клиентов как «старых»."""
+        if db.is_bootstrapped(self.me_id):
+            return
+        marked = 0
+        async for dialog in self.client.iter_dialogs():
+            if not dialog.is_user or dialog.entity.is_self:
+                continue  # группы и Избранное в список клиентов не входят
+            if db.snapshot_existing_dialog(dialog.entity.id, dialog.entity.username):
+                marked += 1
+        db.mark_bootstrapped(self.me_id, marked)
+        logger.info(
+            "Снимок диалогов: помечено existing %s чатов — бот в них не вмешается", marked
+        )
+
     SELF_TEST_MARKER = "[BOT] "
 
     async def send(self, user_id: int, text: str) -> int:

@@ -30,6 +30,8 @@ async def run() -> None:
     db = Database(account_id=tg.me_id)
     poe = PoeClient()
 
+    await tg.snapshot_existing_dialogs(db)
+
     stats = db.startup_summary(tg.me_id)
     logger.info(
         "Режим: %s. Чатов в базе: %s (активных под этим аккаунтом: %s, "
