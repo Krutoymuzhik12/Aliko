@@ -110,7 +110,14 @@ class ReactiveWorker:
 
     def _is_bot_owned(self, user_id: int) -> bool:
         row = self.db.get_chat(user_id)
-        return bool(row and row["status"] == "new")
+        if not row or row["status"] != "new":
+            return False
+        # Тестовая запись в боевом режиме (и наоборот) — чужая: диалог из
+        # SELF_TEST не должен продолжаться на реальном человеке, тем более
+        # если аккаунт с тех пор сменили.
+        if bool(row["is_self_test"]) != self.settings.self_test:
+            return False
+        return True
 
     def _build_messages(self, user_id: int) -> list[dict]:
         """Только данные: сопутствующая инфа о компании/менеджере (если
@@ -249,7 +256,7 @@ class ReactiveWorker:
         now = datetime.now(timezone.utc)
         if not self._within_quiet_hours(now):
             return  # ночь — дожим откладывается до утра
-        for row in self.db.candidates_for_followup():
+        for row in self.db.candidates_for_followup(self_test=self.settings.self_test):
             stage = row["followup_stage"]
             if stage == 0:
                 last_raw = row["last_user_msg_at"]  # молчание клиента

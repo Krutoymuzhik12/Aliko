@@ -40,6 +40,7 @@ class Database:
                     lead_notified_at TEXT,
                     followup_stage INTEGER NOT NULL DEFAULT 0,
                     followup_last_sent_at TEXT,
+                    is_self_test INTEGER NOT NULL DEFAULT 0,
                     created_at TEXT NOT NULL
                 );
 
@@ -62,6 +63,10 @@ class Database:
                 )
             if "followup_last_sent_at" not in cols:
                 conn.execute("ALTER TABLE chats ADD COLUMN followup_last_sent_at TEXT")
+            if "is_self_test" not in cols:
+                conn.execute(
+                    "ALTER TABLE chats ADD COLUMN is_self_test INTEGER NOT NULL DEFAULT 0"
+                )
 
     def get_chat(self, user_id: int) -> sqlite3.Row | None:
         with self._conn() as conn:
@@ -101,12 +106,17 @@ class Database:
 
     def force_new(self, user_id: int) -> None:
         """SELF_TEST: гарантированно 'new', даже если раньше стало 'existing'
-        (например, тестировали сценарий ручного вмешательства на себе же)."""
+        (например, тестировали сценарий ручного вмешательства на себе же).
+
+        Запись помечается is_self_test=1: в боевом режиме такие строки
+        игнорируются полностью. Иначе тестовый диалог переживал бы и
+        переключение SELF_TEST=0, и смену аккаунта, а дожим потом писал бы
+        реальному человеку с чужого уже аккаунта."""
         with self._conn() as conn:
             conn.execute(
-                """INSERT INTO chats (user_id, username, status, created_at)
-                   VALUES (?, NULL, 'new', ?)
-                   ON CONFLICT(user_id) DO UPDATE SET status = 'new'""",
+                """INSERT INTO chats (user_id, username, status, is_self_test, created_at)
+                   VALUES (?, NULL, 'new', 1, ?)
+                   ON CONFLICT(user_id) DO UPDATE SET status = 'new', is_self_test = 1""",
                 (user_id, _utc_now()),
             )
 
@@ -138,7 +148,7 @@ class Database:
                 (stage, _utc_now(), user_id),
             )
 
-    def candidates_for_followup(self) -> list[sqlite3.Row]:
+    def candidates_for_followup(self, self_test: bool = False) -> list[sqlite3.Row]:
         """Чаты 'new' без заявки, для которых ещё не исчерпаны попытки дожима
         (followup_stage < 2), с временем последнего сообщения КЛИЕНТА и
         временем последнего отправленного дожима (для цепочки 2ч -> сутки).
@@ -153,10 +163,12 @@ class Database:
                            WHERE user_id = chats.user_id AND role = 'user') AS last_user_msg_at
                    FROM chats
                    WHERE status = 'new' AND lead_notified_at IS NULL AND followup_stage < 2
+                     AND is_self_test = ?
                      AND EXISTS (SELECT 1 FROM messages
                                  WHERE user_id = chats.user_id AND role = 'user')
                      AND EXISTS (SELECT 1 FROM messages
-                                 WHERE user_id = chats.user_id AND role = 'bot')"""
+                                 WHERE user_id = chats.user_id AND role = 'bot')""",
+                (1 if self_test else 0,),
             ).fetchall()
 
     def append_message(self, user_id: int, role: str, text: str) -> None:
