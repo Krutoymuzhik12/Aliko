@@ -141,14 +141,22 @@ class Database:
     def candidates_for_followup(self) -> list[sqlite3.Row]:
         """Чаты 'new' без заявки, для которых ещё не исчерпаны попытки дожима
         (followup_stage < 2), с временем последнего сообщения КЛИЕНТА и
-        временем последнего отправленного дожима (для цепочки 2ч -> сутки)."""
+        временем последнего отправленного дожима (для цепочки 2ч -> сутки).
+
+        Обязательное условие: в чате уже есть И сообщение клиента, И ответ
+        бота. Дожим — это возврат в НАЧАТЫЙ диалог, поэтому бот никогда не
+        напишет первым в чат, где он сам ещё не говорил."""
         with self._conn() as conn:
             return conn.execute(
                 """SELECT user_id, followup_stage, followup_last_sent_at,
                           (SELECT MAX(created_at) FROM messages
                            WHERE user_id = chats.user_id AND role = 'user') AS last_user_msg_at
                    FROM chats
-                   WHERE status = 'new' AND lead_notified_at IS NULL AND followup_stage < 2"""
+                   WHERE status = 'new' AND lead_notified_at IS NULL AND followup_stage < 2
+                     AND EXISTS (SELECT 1 FROM messages
+                                 WHERE user_id = chats.user_id AND role = 'user')
+                     AND EXISTS (SELECT 1 FROM messages
+                                 WHERE user_id = chats.user_id AND role = 'bot')"""
             ).fetchall()
 
     def append_message(self, user_id: int, role: str, text: str) -> None:
