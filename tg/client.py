@@ -27,6 +27,23 @@ def _normalize_mtproxy_secret(secret: str) -> str:
         return secret.replace("-", "+").replace("_", "/")
 
 
+def _assert_proxy_usable(settings: AppSettings) -> None:
+    """Telethon молча игнорирует proxy=..., если не установлен python_socks:
+    в логе остаётся лишь UserWarning, а трафик идёт напрямую с IP сервера.
+    Для аккаунта, который должен ходить только через прокси, это тихий
+    провал — поэтому падаем явно."""
+    if not (settings.tg_proxy_host or settings.tg_mtproxy_server):
+        return
+    try:
+        import python_socks  # noqa: F401
+    except ImportError:
+        raise RuntimeError(
+            "Прокси задан в .env, но библиотека python-socks не установлена — "
+            "Telethon проигнорирует прокси и пойдёт напрямую. "
+            "Установи: pip install 'python-socks[asyncio]'"
+        ) from None
+
+
 def _build_client_kwargs(settings: AppSettings) -> dict:
     if settings.tg_mtproxy_server:
         from telethon.network import ConnectionTcpMTProxyRandomizedIntermediate
@@ -58,6 +75,7 @@ class ManagerClient:
         if not settings.tg_ready():
             raise RuntimeError("Задай TG_API_ID и TG_API_HASH в .env (my.telegram.org)")
         self.settings = settings
+        _assert_proxy_usable(settings)
         client_kwargs = _build_client_kwargs(settings)
         self.client = TelegramClient(
             settings.tg_session, settings.tg_api_id, settings.tg_api_hash, **client_kwargs
